@@ -3,34 +3,37 @@ const axios = require("axios");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware: only allow requests from Roblox servers
-app.use((req, res, next) => {
-    // Optional: add a secret key check for security
-    // if (req.headers["x-api-key"] !== process.env.SECRET_KEY) return res.status(403).json({ error: "Forbidden" });
-    next();
-});
+// Simple in-memory cache to reduce API calls
+const cache = {};
+const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
-// 1. Resolve username → userId
-app.get("/user/:username", async (req, res) => {
-    try {
-        const response = await axios.post("https://users.roblox.com/v1/usernames/users", {
-            usernames: [req.params.username],
-            excludeBannedUsers: true
-        });
-        const user = response.data.data[0];
-        if (!user) return res.status(404).json({ error: "User not found" });
-        res.json({ id: user.id, name: user.name, displayName: user.displayName });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
+function getCached(key) {
+    const entry = cache[key];
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > CACHE_DURATION_MS) {
+        delete cache[key];
+        return null;
     }
-});
+    return entry.data;
+}
 
-// 2. Get all game passes for a userId (searches across their games)
+function setCache(key, data) {
+    cache[key] = { data, timestamp: Date.now() };
+}
+
+// 1. Get game passes for a userId
 app.get("/passes/:userId", async (req, res) => {
-    try {
-        const userId = req.params.userId;
+    const userId = req.params.userId;
 
-        // Fetch user's games
+    // Check cache first
+    const cached = getCached("passes_" + userId);
+    if (cached) {
+        console.log("Cache hit for userId:", userId);
+        return res.json(cached);
+    }
+
+    try {
+        // Fetch user's public games
         const gamesRes = await axios.get(
             `https://games.roblox.com/v2/users/${userId}/games?limit=10&accessFilter=Public`
         );
@@ -46,8 +49,7 @@ app.get("/passes/:userId", async (req, res) => {
                     id: pass.id,
                     name: pass.name,
                     price: pass.price,
-                    displayPrice: pass.price ? `${pass.price} R$` : "Free",
-                    imageToken: pass.imageToken,
+                    displayPrice: pass.price ? pass.price + " R$" : "Free",
                     gameName: game.name,
                     gameId: game.id,
                 }));
@@ -61,10 +63,13 @@ app.get("/passes/:userId", async (req, res) => {
             .flat()
             .filter(p => p.price && p.price > 0); // only paid passes
 
-        res.json({ passes: allPasses });
+        const result = { passes: allPasses };
+        setCache("passes_" + userId, result);
+        res.json(result);
+
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
 
-app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
+app.listen(PORT, () => console.log("Proxy running on port " + PORT));
