@@ -72,4 +72,8 @@ app.get("/passes/:userId", async (req, res) => {
     }
 });
 
+app.get("/", (req, res) => {
+    res.json({ status: "ok" });
+});
+
 app.listen(PORT, () => console.log("Proxy running on port " + PORT));
