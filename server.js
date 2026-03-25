@@ -4,7 +4,9 @@ const axios = require("axios");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Simple in-memory cache
+// ======================
+// Cache system
+// ======================
 const cache = {};
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -27,18 +29,63 @@ function setCache(key, data) {
     };
 }
 
-// ✅ MAIN ENDPOINT (PLS DONATE METHOD)
-app.get("/passes/:userId", async (req, res) => {
-    const userId = req.params.userId;
+// ======================
+// Resolve input → userId
+// ======================
+async function resolveUserId(input) {
+    let userId;
 
-    // Check cache
-    const cached = getCached("passes_" + userId);
-    if (cached) {
-        console.log("Cache hit:", userId);
-        return res.json(cached);
+    // Case 1: Roblox profile link
+    if (input.includes("roblox.com")) {
+        const match = input.match(/users\/(\d+)/);
+        if (match) {
+            userId = match[1];
+        } else {
+            throw new Error("Invalid Roblox profile link.");
+        }
     }
 
+    // Case 2: Already a userId
+    else if (/^\d+$/.test(input)) {
+        userId = input;
+    }
+
+    // Case 3: Username
+    else {
+        const res = await axios.post(
+            "https://users.roblox.com/v1/usernames/users",
+            {
+                usernames: [input],
+                excludeBannedUsers: true
+            }
+        );
+
+        if (!res.data.data.length) {
+            throw new Error("User not found.");
+        }
+
+        userId = res.data.data[0].id;
+    }
+
+    return userId;
+}
+
+// ======================
+// MAIN ROUTE
+// ======================
+app.get("/passes/:input", async (req, res) => {
+    const input = req.params.input;
+
     try {
+        const userId = await resolveUserId(input);
+
+        // Check cache
+        const cached = getCached("passes_" + userId);
+        if (cached) {
+            console.log("Cache hit:", userId);
+            return res.json({ passes: cached });
+        }
+
         let cursor = null;
         let allPasses = [];
 
@@ -59,7 +106,7 @@ app.get("/passes/:userId", async (req, res) => {
                 id: item.id,
                 name: item.name,
                 price: item.price ?? null,
-                displayPrice: item.price ? item.price + " R$" : "Offsale/Hidden"
+                displayPrice: item.price ? item.price + " R$" : "Offsale"
             }));
 
             allPasses.push(...passes);
@@ -69,23 +116,33 @@ app.get("/passes/:userId", async (req, res) => {
 
         console.log("Fetched passes:", allPasses.length);
 
-        const result = { passes: allPasses };
+        setCache("passes_" + userId, allPasses);
 
-        setCache("passes_" + userId, result);
-
-        res.json(result);
+        res.json({ passes: allPasses });
 
     } catch (err) {
+        if (err.response && err.response.status === 404) {
+            return res.json({ passes: [] });
+        }
+
         console.error("ERROR:", err.message);
-        res.status(500).json({ error: err.message });
+
+        res.status(500).json({
+            error: err.message || "Unknown error"
+        });
     }
 });
 
+// ======================
 // Health check
+// ======================
 app.get("/", (req, res) => {
     res.json({ status: "ok" });
 });
 
+// ======================
+// Start server
+// ======================
 app.listen(PORT, () => {
     console.log("Server running on port " + PORT);
 });
