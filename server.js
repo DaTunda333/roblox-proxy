@@ -21,7 +21,7 @@ function setCache(key, data) {
     cache[key] = { data, timestamp: Date.now() };
 }
 
-// 1. Get game passes for a userId
+// Get game passes for a userId
 app.get("/passes/:userId", async (req, res) => {
     const userId = req.params.userId;
 
@@ -39,11 +39,11 @@ app.get("/passes/:userId", async (req, res) => {
         );
         const games = gamesRes.data.data || [];
 
-        // For each game, fetch its game passes
+        // For each game, fetch its game passes using universe ID (game.id)
         const passPromises = games.map(async (game) => {
             try {
                 const passRes = await axios.get(
-                    `https://games.roblox.com/v1/games/${game.rootPlace.id}/game-passes?limit=100&sortOrder=Asc`
+                    `https://games.roblox.com/v1/games/${game.id}/game-passes?limit=100&sortOrder=Asc`
                 );
                 return (passRes.data.data || []).map(pass => ({
                     id: pass.id,
@@ -70,6 +70,11 @@ app.get("/passes/:userId", async (req, res) => {
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
+});
+
+// Health check route
+app.get("/", (req, res) => {
+    res.json({ status: "ok" });
 });
 
 app.listen(PORT, () => console.log("Proxy running on port " + PORT));
