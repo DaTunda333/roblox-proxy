@@ -10,9 +10,8 @@ const headers = {
     "Referer": "https://www.roblox.com/"
 };
 
-// Simple in-memory cache to reduce API calls
 const cache = {};
-const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION_MS = 5 * 60 * 1000;
 
 function getCached(key) {
     const entry = cache[key];
@@ -28,11 +27,9 @@ function setCache(key, data) {
     cache[key] = { data, timestamp: Date.now() };
 }
 
-// Get game passes for a userId
 app.get("/passes/:userId", async (req, res) => {
     const userId = req.params.userId;
 
-    // Check cache first
     const cached = getCached("passes_" + userId);
     if (cached) {
         console.log("Cache hit for userId:", userId);
@@ -40,20 +37,21 @@ app.get("/passes/:userId", async (req, res) => {
     }
 
     try {
-        // Fetch user's public games
         const gamesRes = await axios.get(
             `https://games.roblox.com/v2/users/${userId}/games?limit=10&accessFilter=Public`,
             { headers }
         );
         const games = gamesRes.data.data || [];
+        console.log(`Found ${games.length} games for user ${userId}`);
 
-        // For each game, fetch its game passes using universe ID (game.id)
         const passPromises = games.map(async (game) => {
             try {
+                console.log(`Fetching passes for game: ${game.name} (universeId: ${game.id})`);
                 const passRes = await axios.get(
                     `https://games.roblox.com/v1/games/${game.id}/game-passes?limit=100&sortOrder=Asc`,
                     { headers }
                 );
+                console.log(`Game ${game.name} response:`, JSON.stringify(passRes.data));
                 return (passRes.data.data || []).map(pass => ({
                     id: pass.id,
                     name: pass.name,
@@ -62,7 +60,8 @@ app.get("/passes/:userId", async (req, res) => {
                     gameName: game.name,
                     gameId: game.id,
                 }));
-            } catch {
+            } catch (e) {
+                console.log(`Error fetching passes for game ${game.name}:`, e.message);
                 return [];
             }
         });
@@ -77,11 +76,11 @@ app.get("/passes/:userId", async (req, res) => {
         res.json(result);
 
     } catch (e) {
+        console.log("Top level error:", e.message);
         res.status(500).json({ error: e.message });
     }
 });
 
-// Health check route
 app.get("/", (req, res) => {
     res.json({ status: "ok" });
 });
