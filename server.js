@@ -39,8 +39,9 @@ app.get("/passes/:userId", async (req, res) => {
     try {
         console.log(`Fetching games for userId: ${userId}`);
 
+        // Use roproxy.com instead of roblox.com to bypass Roblox's external server block
         const gamesRes = await axios.get(
-            `https://games.roblox.com/v2/users/${userId}/games?accessFilter=Public&limit=50&sortOrder=Asc`,
+            `https://games.roproxy.com/v2/users/${userId}/games?accessFilter=Public&limit=50&sortOrder=Asc`,
             { headers }
         );
         const games = gamesRes.data.data || [];
@@ -50,7 +51,7 @@ app.get("/passes/:userId", async (req, res) => {
             try {
                 console.log(`Fetching passes for game: ${game.name} (universeId: ${game.id})`);
                 const passRes = await axios.get(
-                    `https://games.roblox.com/v1/games/${game.id}/game-passes?limit=50&sortOrder=1`,
+                    `https://games.roproxy.com/v1/games/${game.id}/game-passes?limit=50&sortOrder=1`,
                     { headers }
                 );
                 const passes = passRes.data.data || [];
