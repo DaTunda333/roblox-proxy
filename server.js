@@ -1,5 +1,6 @@
 const express = require("express");
 const axios = require("axios");
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -10,64 +11,63 @@ const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 function getCached(key) {
     const entry = cache[key];
     if (!entry) return null;
+
     if (Date.now() - entry.timestamp > CACHE_DURATION_MS) {
         delete cache[key];
         return null;
     }
+
     return entry.data;
 }
 
 function setCache(key, data) {
-    cache[key] = { data, timestamp: Date.now() };
+    cache[key] = {
+        data,
+        timestamp: Date.now()
+    };
 }
 
-// Get game passes for a userId
+// ✅ MAIN ENDPOINT (PLS DONATE METHOD)
 app.get("/passes/:userId", async (req, res) => {
     const userId = req.params.userId;
 
+    // Check cache
     const cached = getCached("passes_" + userId);
     if (cached) {
-        console.log("Cache hit for userId:", userId);
+        console.log("Cache hit:", userId);
         return res.json(cached);
     }
 
     try {
-        // Fetch user's public games
-        const gamesRes = await axios.get(
-            `https://games.roblox.com/v2/users/${userId}/games?limit=50&accessFilter=Public`
-        );
+        let cursor = null;
+        let allPasses = [];
 
-        const games = gamesRes.data.data || [];
+        do {
+            let url = `https://inventory.roblox.com/v1/users/${userId}/items/GamePass?limit=100`;
+            if (cursor) url += `&cursor=${cursor}`;
 
-        console.log("Found games:", games.length);
+            const response = await axios.get(url, {
+                headers: {
+                    "User-Agent": "Mozilla/5.0",
+                    "Accept": "application/json"
+                }
+            });
 
-        const passPromises = games.map(async (game) => {
-            try {
-                // ✅ FIX: use game.id (Universe ID), NOT rootPlace.id
-                const passRes = await axios.get(
-                    `https://games.roblox.com/v1/games/${game.id}/game-passes?limit=100&sortOrder=Asc`
-                );
+            const data = response.data;
 
-                return (passRes.data.data || []).map(pass => ({
-                    id: pass.id,
-                    name: pass.name,
-                    price: pass.price,
-                    displayPrice: pass.price ? pass.price + " R$" : "Free",
-                    gameName: game.name,
-                    gameId: game.id,
-                }));
-            } catch (err) {
-                console.log("Failed to fetch passes for game:", game.id);
-                return [];
-            }
-        });
+            const passes = (data.data || []).map(item => ({
+                id: item.id,
+                name: item.name,
+                price: item.price ?? null,
+                displayPrice: item.price ? item.price + " R$" : "Offsale/Hidden"
+            }));
 
-        const allPassArrays = await Promise.all(passPromises);
+            allPasses.push(...passes);
+            cursor = data.nextPageCursor;
 
-        const allPasses = allPassArrays
-            .flat()
-            // OPTIONAL: keep all passes (including free ones for testing)
-            .filter(p => p.price != null);
+        } while (cursor);
+
+        console.log("Fetched passes:", allPasses.length);
 
         const result = { passes: allPasses };
 
@@ -75,14 +75,17 @@ app.get("/passes/:userId", async (req, res) => {
 
         res.json(result);
 
-    } catch (e) {
-        console.error("ERROR:", e.message);
-        res.status(500).json({ error: e.message });
+    } catch (err) {
+        console.error("ERROR:", err.message);
+        res.status(500).json({ error: err.message });
     }
 });
 
+// Health check
 app.get("/", (req, res) => {
     res.json({ status: "ok" });
 });
 
-app.listen(PORT, () => console.log("Proxy running on port " + PORT));
+app.listen(PORT, () => {
+    console.log("Server running on port " + PORT);
+});
