@@ -3,6 +3,13 @@ const axios = require("axios");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.roblox.com/"
+};
+
 // Simple in-memory cache to reduce API calls
 const cache = {};
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
@@ -35,7 +42,8 @@ app.get("/passes/:userId", async (req, res) => {
     try {
         // Fetch user's public games
         const gamesRes = await axios.get(
-            `https://games.roblox.com/v2/users/${userId}/games?limit=10&accessFilter=Public`
+            `https://games.roblox.com/v2/users/${userId}/games?limit=10&accessFilter=Public`,
+            { headers }
         );
         const games = gamesRes.data.data || [];
 
@@ -43,7 +51,8 @@ app.get("/passes/:userId", async (req, res) => {
         const passPromises = games.map(async (game) => {
             try {
                 const passRes = await axios.get(
-                    `https://games.roblox.com/v1/games/${game.id}/game-passes?limit=100&sortOrder=Asc`
+                    `https://games.roblox.com/v1/games/${game.id}/game-passes?limit=100&sortOrder=Asc`,
+                    { headers }
                 );
                 return (passRes.data.data || []).map(pass => ({
                     id: pass.id,
@@ -61,7 +70,7 @@ app.get("/passes/:userId", async (req, res) => {
         const allPassArrays = await Promise.all(passPromises);
         const allPasses = allPassArrays
             .flat()
-            .filter(p => p.price && p.price > 0); // only paid passes
+            .filter(p => p.price && p.price > 0);
 
         const result = { passes: allPasses };
         setCache("passes_" + userId, result);
