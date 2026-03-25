@@ -37,56 +37,45 @@ app.get("/passes/:userId", async (req, res) => {
     }
 
     try {
-        console.log(`Fetching game passes for userId: ${userId}`);
+        console.log(`Fetching games for userId: ${userId}`);
 
-        // Step 1: Search for game passes by this creator
-        const searchRes = await axios.get(
-            `https://catalog.roblox.com/v1/search/items?category=GamePass&creatorType=User&creatorTargetId=${userId}&limit=30`,
+        const gamesRes = await axios.get(
+            `https://games.roblox.com/v2/users/${userId}/games?accessFilter=Public&limit=50&sortOrder=Asc`,
             { headers }
         );
+        const games = gamesRes.data.data || [];
+        console.log(`Found ${games.length} games`);
 
-        const items = searchRes.data.data || [];
-        console.log(`Found ${items.length} items from search`);
-
-        if (items.length === 0) {
-            const result = { passes: [] };
-            setCache("passes_" + userId, result);
-            return res.json(result);
-        }
-
-        // Step 2: Get full details (including price and name) for each item
-        const detailsRes = await axios.post(
-            "https://catalog.roblox.com/v1/catalog/items/details",
-            {
-                items: items.map(i => ({
-                    itemType: i.itemType,
-                    id: i.id
-                }))
-            },
-            {
-                headers: {
-                    ...headers,
-                    "Content-Type": "application/json"
-                }
+        const passPromises = games.map(async (game) => {
+            try {
+                console.log(`Fetching passes for game: ${game.name} (universeId: ${game.id})`);
+                const passRes = await axios.get(
+                    `https://games.roblox.com/v1/games/${game.id}/game-passes?limit=50&sortOrder=1`,
+                    { headers }
+                );
+                const passes = passRes.data.data || [];
+                console.log(`Found ${passes.length} passes for ${game.name}`);
+                return passes
+                    .filter(p => p.price && p.price > 0)
+                    .map(pass => ({
+                        id: pass.id,
+                        name: pass.name,
+                        price: pass.price,
+                        displayPrice: pass.price + " R$",
+                        gameName: game.name,
+                        gameId: game.id,
+                    }));
+            } catch (e) {
+                console.log(`Error fetching passes for ${game.name}:`, e.message);
+                return [];
             }
-        );
+        });
 
-        console.log("Details response:", JSON.stringify(detailsRes.data));
+        const allPassArrays = await Promise.all(passPromises);
+        const allPasses = allPassArrays.flat();
 
-        const details = detailsRes.data.data || [];
-        const passes = details
-            .filter(item => item.price && item.price > 0)
-            .map(item => ({
-                id: item.id,
-                name: item.name,
-                price: item.price,
-                displayPrice: item.price + " R$",
-                gameName: item.creatorName || "Unknown",
-                gameId: null,
-            }));
-
-        console.log(`Returning ${passes.length} passes`);
-        const result = { passes };
+        console.log(`Returning ${allPasses.length} total passes`);
+        const result = { passes: allPasses };
         setCache("passes_" + userId, result);
         res.json(result);
 
