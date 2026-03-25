@@ -37,46 +37,31 @@ app.get("/passes/:userId", async (req, res) => {
     }
 
     try {
-        const gamesRes = await axios.get(
-            `https://games.roblox.com/v2/users/${userId}/games?limit=10&accessFilter=Public`,
+        console.log(`Fetching game passes for userId: ${userId}`);
+
+        const passRes = await axios.get(
+            `https://catalog.roblox.com/v1/search/items?category=GamePass&creatorUserId=${userId}&limit=30`,
             { headers }
         );
-        const games = gamesRes.data.data || [];
-        console.log(`Found ${games.length} games for user ${userId}`);
 
-        const passPromises = games.map(async (game) => {
-            try {
-                console.log(`Fetching passes for game: ${game.name} (universeId: ${game.id})`);
-                const passRes = await axios.get(
-                    `https://games.roblox.com/v1/games/${game.id}/game-passes?limit=100&sortOrder=Asc`,
-                    { headers }
-                );
-                console.log(`Game ${game.name} response:`, JSON.stringify(passRes.data));
-                return (passRes.data.data || []).map(pass => ({
-                    id: pass.id,
-                    name: pass.name,
-                    price: pass.price,
-                    displayPrice: pass.price ? pass.price + " R$" : "Free",
-                    gameName: game.name,
-                    gameId: game.id,
-                }));
-            } catch (e) {
-                console.log(`Error fetching passes for game ${game.name}:`, e.message);
-                return [];
-            }
-        });
+        console.log("Catalog response:", JSON.stringify(passRes.data));
 
-        const allPassArrays = await Promise.all(passPromises);
-        const allPasses = allPassArrays
-            .flat()
-            .filter(p => p.price && p.price > 0);
+        const items = passRes.data.data || [];
+        const passes = items.map(item => ({
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            displayPrice: item.price ? item.price + " R$" : "Free",
+            gameName: "Game Pass",
+            gameId: null,
+        })).filter(p => p.price && p.price > 0);
 
-        const result = { passes: allPasses };
+        const result = { passes };
         setCache("passes_" + userId, result);
         res.json(result);
 
     } catch (e) {
-        console.log("Top level error:", e.message);
+        console.log("Error:", e.message);
         res.status(500).json({ error: e.message });
     }
 });
